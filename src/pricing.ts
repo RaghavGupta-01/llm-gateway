@@ -1,9 +1,17 @@
 /**
- * Pricing table for Mock provider.
+ * Pricing table for models.
  *
- * Rates are recorded in micro-rupees per 1,000,000 tokens:
- * - In: 10,000,000 micro-rupees / 1M tokens (10 micro-rupees per token)
- * - Out: 20,000,000 micro-rupees / 1M tokens (20 micro-rupees per token)
+ * Rates are recorded in micro-rupees per 1,000,000 tokens (1 INR = 1,000,000 micro-rupees).
+ * Assumed exchange rate: 1 USD = 93 INR (as of 2026-11-19).
+ *
+ * Models:
+ * - mock: Default mock/fallback model (₹10 / 1M in, ₹20 / 1M out)
+ * - gemini-4-hydrogen:
+ *   Input:  $1.50 / 1M tokens = ₹139.50 / 1M = 139,500,000 micro-rupees
+ *   Output: $7.50 / 1M tokens = ₹697.50 / 1M = 697,500,000 micro-rupees
+ * - gemini-3.8-flash:
+ *   Input:  $0.75 / 1M tokens = ₹69.75 / 1M = 69,750,000 micro-rupees
+ *   Output: $3.75 / 1M tokens = ₹350.625 / 1M = 350,625,000 micro-rupees
  */
 
 export interface ModelPricing {
@@ -15,7 +23,15 @@ export const PRICING_TABLE: Record<string, ModelPricing> = {
   "mock": {
     inPerM: 10_000_000n,
     outPerM: 20_000_000n,
-  }
+  },
+  "gemini-4-hydrogen": {
+    inPerM: 139_500_000n,
+    outPerM: 697_500_000n,
+  },
+  "gemini-3.8-flash": {
+    inPerM: 69_750_000n,
+    outPerM: 350_625_000n,
+  },
 };
 
 export function isSupportedModel(model: string): boolean {

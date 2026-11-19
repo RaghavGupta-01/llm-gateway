@@ -14,7 +14,7 @@ export interface ProviderResult {
   body: unknown;
   tokensIn: number;
   tokensOut: number;
-  provider: "mock";
+  provider: "gemini" | "mock";
   model: string;
 }
 
@@ -31,6 +31,6 @@ export class ProviderError extends Error {
 }
 
 export interface Provider {
-  readonly name: "mock";
+  readonly name: "gemini" | "mock";
   chat(req: ChatRequest, signal?: AbortSignal): Promise<ProviderResult>;
 }
