@@ -4,6 +4,7 @@ import { pool } from "../db.js";
 import { requireVirtualKey } from "../auth.js";
 import { isSupportedModel, actualCost } from "../pricing.js";
 import { mockProvider } from "../providers/mock.js";
+import { geminiProvider } from "../providers/gemini.js";
 
 export const chatRouter = Router();
 
@@ -54,8 +55,9 @@ chatRouter.post("/chat/completions", async (req: Request, res: Response) => {
   const startTime = Date.now();
 
   try {
-    // Send request to mock provider
-    const result = await mockProvider.chat({
+    // Select provider based on model
+    const provider = model === "mock" ? mockProvider : geminiProvider;
+    const result = await provider.chat({
       model,
       messages,
       max_tokens: effectiveMaxTokens,

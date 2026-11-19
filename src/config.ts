@@ -8,6 +8,12 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   DATABASE_URL_UNPOOLED: z.string().optional(),
   ADMIN_TOKEN: z.string().min(32, "ADMIN_TOKEN must be at least 32 characters long"),
+  GEMINI_API_KEY: z.string().min(1, "GEMINI_API_KEY is required"),
+  GEMINI_BASE_URL: z
+    .string()
+    .url()
+    .default("https://generativelanguage.googleapis.com/v1beta/openai"),
+  PROVIDER_TIMEOUT_MS: z.coerce.number().default(10000),
   PORT: z.coerce.number().default(3000),
 });
 

@@ -12,6 +12,13 @@
 - **Tradeoff accepted:** The unit is less intuitive. Budgets are entered in rupees and converted at the API edge, and Node needs explicit `BigInt` handling because `pg` returns `BIGINT` as strings.
 - **Alternative I considered:** Paise with round-up and a 1-paisa minimum charge per request. It's simpler, but it overcharges small requests, so spend would no longer match real cost.
 
+### 2. Public API shape and provider access
+
+- **Options:** own schema; Gemini-native schema via the Google GenAI SDK; OpenAI-compatible chat/completions.
+- **Picked:** OpenAI-compatible on both sides: callers use /v1/chat/completions, and the gateway calls Gemini's OpenAI-compatible endpoint with fetch.
+- **Why:** Any OpenAI SDK works by changing the base URL, providers (Gemini, mock) share one shape so fallback is trivial, and there is almost no translation code in the critical path.
+- **Tradeoff accepted:** I only get the common subset of features and depend on Google's compatibility layer matching the OpenAI behavior. Gemini-only features are unavailable.
+
 ## 4. Why enforce budgets at the gateway instead of trusting callers?
 
 ## 5. Concurrency

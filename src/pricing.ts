@@ -32,6 +32,14 @@ export const PRICING_TABLE: Record<string, ModelPricing> = {
     inPerM: 69_750_000n,
     outPerM: 350_625_000n,
   },
+  "gemini-2.5-flash": {
+    inPerM: 27_900_000n,
+    outPerM: 232_500_000n,
+  },
+  "gemini-1.5-flash": {
+    inPerM: 6_975_000n,
+    outPerM: 27_900_000n,
+  },
 };
 
 export function isSupportedModel(model: string): boolean {
