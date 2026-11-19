@@ -57,10 +57,18 @@ export class GeminiProvider implements Provider {
 
       if (!response.ok) {
         const status = response.status;
+        const errorBody = await response.text();
+
+        console.error("[Gemini Upstream Error]", {
+          status,
+          statusText: response.statusText,
+          body: errorBody,
+        });
+
         const isRetryable = status === 429 || status >= 500;
         
         throw new ProviderError(
-          `Gemini upstream responded with status ${status}`,
+          `Gemini upstream error (${status}): ${errorBody}`,
           isRetryable,
           status
         );

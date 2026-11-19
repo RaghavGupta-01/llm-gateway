@@ -12,6 +12,12 @@
  * - gemini-3.8-flash:
  *   Input:  $0.75 / 1M tokens = ₹69.75 / 1M = 69,750,000 micro-rupees
  *   Output: $3.75 / 1M tokens = ₹350.625 / 1M = 350,625,000 micro-rupees
+ * - gemini-3.6-flash:
+ *   Input:  $0.50 / 1M tokens = ₹46.50 / 1M = 46,500,000 micro-rupees
+ *   Output: $2.50 / 1M tokens = ₹232.50 / 1M = 232,500,000 micro-rupees
+ * - gemini-3.5-flash-lite:
+ *   Input:  $0.25 / 1M tokens = ₹23.25 / 1M = 23,250,000 micro-rupees
+ *   Output: $1.25 / 1M tokens = ₹116.25 / 1M = 116,250,000 micro-rupees
  */
 
 export interface ModelPricing {
@@ -32,14 +38,18 @@ export const PRICING_TABLE: Record<string, ModelPricing> = {
     inPerM: 69_750_000n,
     outPerM: 350_625_000n,
   },
-  "gemini-2.5-flash": {
-    inPerM: 27_900_000n,
+  "gemini-3.6-flash": {
+    inPerM: 46_500_000n,
     outPerM: 232_500_000n,
   },
-  "gemini-1.5-flash": {
-    inPerM: 6_975_000n,
-    outPerM: 27_900_000n,
+  "gemini-3.5-flash-lite": {
+    inPerM: 23_250_000n,
+    outPerM: 116_250_000n,
   },
+  "gemini-3.1-flash-lite": {
+    inPerM: 4_650_000n,
+    outPerM: 23_250_000n,
+  }
 };
 
 export function isSupportedModel(model: string): boolean {
