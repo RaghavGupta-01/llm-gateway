@@ -3,9 +3,8 @@ import { z } from "zod";
 import { pool } from "../db.js";
 import { requireVirtualKey } from "../auth.js";
 import { isSupportedModel, actualCost, estimateReserve } from "../pricing.js";
-import { mockProvider } from "../providers/mock.js";
-import { geminiProvider } from "../providers/gemini.js";
 import { reserveBudget, settleBudget, releaseBudget } from "../budget.js";
+import { executeWithFallback, FatalGatewayError } from "../gateway.js";
 
 export const chatRouter = Router();
 
@@ -71,11 +70,10 @@ chatRouter.post("/chat/completions", async (req: Request, res: Response) => {
   }
 
   const startTime = Date.now();
-  const provider = model === "mock" ? mockProvider : geminiProvider;
 
   try {
-    // 2. Call provider (Gemini or Mock)
-    const result = await provider.chat({
+    // 2. Call gateway with 1x retry and mock provider fallback
+    const result = await executeWithFallback({
       model,
       messages,
       max_tokens: effectiveMaxTokens,
@@ -83,32 +81,45 @@ chatRouter.post("/chat/completions", async (req: Request, res: Response) => {
 
     const latencyMs = Date.now() - startTime;
 
-    // 3. Settle transaction: calculate actual cost, adjust spent_micro, and log usage
-    const actualMicro = actualCost(model, result.tokensIn, result.tokensOut);
+    // 3. Settle transaction: mock fallback is priced at 0 per spec
+    const actualMicro =
+      result.status === "fallback_ok"
+        ? 0n
+        : actualCost(model, result.tokensIn, result.tokensOut);
+
     await settleBudget(keyId, reserveMicro, actualMicro, {
       provider: result.provider,
       model: result.model,
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
       costMicro: actualMicro,
-      status: "ok",
+      status: result.status,
       latencyMs,
     });
 
-    // 4. Respond with provider JSON and gateway header
+    // 4. Respond with provider JSON and gateway provider header
     res.setHeader("x-gateway-provider", result.provider);
     res.status(200).json(result.body);
   } catch (error) {
     const latencyMs = Date.now() - startTime;
     console.error("Chat completion error:", error);
 
-    // On upstream failure: release reservation, log failed row with cost=0, and return 502
+    // Release budget on failure (cost_micro = 0)
     await releaseBudget(keyId, reserveMicro, {
-      provider: provider.name,
+      provider: model === "mock" ? "mock" : "gemini",
       model,
       status: "failed",
       latencyMs,
     });
+
+    // If fatal 4xx (bad request upstream), return clear 400-class error
+    if (error instanceof FatalGatewayError) {
+      res.status(error.status).json({
+        error: "upstream_client_error",
+        message: error.message,
+      });
+      return;
+    }
 
     res.status(502).json({ error: "upstream_unavailable" });
   }

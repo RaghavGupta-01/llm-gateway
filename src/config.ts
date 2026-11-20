@@ -14,6 +14,9 @@ const envSchema = z.object({
     .url()
     .default("https://generativelanguage.googleapis.com/v1beta/openai"),
   PROVIDER_TIMEOUT_MS: z.coerce.number().default(10000),
+  MOCK_FORCE_PRIMARY_FAIL: z
+    .preprocess((val) => val === true || val === "true", z.boolean())
+    .default(false),
   PORT: z.coerce.number().default(3000),
 });
 
