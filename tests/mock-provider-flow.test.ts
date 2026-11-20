@@ -95,4 +95,53 @@ describe("Log Only (Mock Provider Flow)", () => {
     expect(cost).toBeGreaterThan(0n);
     console.log(`Verified sensible cost for tokens in=${logRow.tokens_in}, out=${logRow.tokens_out}: ${cost} micro-rupees`);
   });
+
+  it("should return detailed usage summary via GET /admin/usage/:keyId", async () => {
+    const res = await request(app)
+      .get(`/admin/usage/${keyId}`)
+      .set("Authorization", `Bearer ${config.ADMIN_TOKEN}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.key_id).toBe(keyId);
+    expect(res.body.name).toBe("mock-user");
+    expect(res.body.budget_micro).toBe(10_000_000);
+    expect(res.body.spent_micro).toBeGreaterThan(0);
+    expect(res.body.remaining_micro).toBe(res.body.budget_micro - res.body.spent_micro);
+    expect(res.body.request_count).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(res.body.recent)).toBe(true);
+    expect(res.body.recent.length).toBeGreaterThanOrEqual(1);
+    expect(res.body.recent[0].status).toBe("ok");
+  });
+
+  it("should reject an over-budget request with 402 and not call provider", async () => {
+    // Create a key with tiny budget (1 micro-rupee)
+    const tinyKeyRes = await request(app)
+      .post("/admin/keys")
+      .set("Authorization", `Bearer ${config.ADMIN_TOKEN}`)
+      .send({ name: "broke-user", budget_micro: 1 });
+
+    const brokeKey = tinyKeyRes.body.key;
+    const brokeKeyId = tinyKeyRes.body.id;
+
+    try {
+      const res = await request(app)
+        .post("/v1/chat/completions")
+        .set("Authorization", `Bearer ${brokeKey}`)
+        .send({
+          model: "mock",
+          messages: [{ role: "user", content: "Say something expensive" }],
+          max_tokens: 50,
+        });
+
+      expect(res.status).toBe(402);
+      expect(res.body).toEqual({ error: "budget_exceeded" });
+
+      // Verify that no usage was logged for this failed key
+      const usageRes = await pool.query("SELECT COUNT(*) FROM usage_logs WHERE key_id = $1", [brokeKeyId]);
+      expect(Number(usageRes.rows[0].count)).toBe(0);
+    } finally {
+      await pool.query("DELETE FROM usage_logs WHERE key_id = $1", [brokeKeyId]);
+      await pool.query("DELETE FROM api_keys WHERE id = $1", [brokeKeyId]);
+    }
+  });
 });
