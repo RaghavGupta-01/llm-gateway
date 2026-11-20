@@ -25,6 +25,31 @@
 
 ## 6. Fallback policy and why
 
+## 6. Fallback policy and why
+
+**Policy**
+
+1. Call Gemini with a hard 10s timeout (`AbortController`).
+2. **Retryable errors** (timeout, network error, 429, 5xx): wait ~300ms plus jitter and retry once.
+3. If the retry also fails, fall back to the in-process mock provider. The response carries `x-gateway-provider: mock` and the log row is marked `fallback_ok`, so degraded responses are auditable.
+4. **Fatal errors** (400-class errors caused by the caller's request): no retry and no fallback. The input is the problem, so retrying only repeats the error and hides it. The reservation is released and the error is returned.
+5. If the fallback also fails, release the reservation, log `failed`, and return 502.
+
+**Billing:** only successful real provider calls are charged. A mock response costs nothing, so the full reservation is refunded.
+
+**Why this shape**
+
+- A single bounded retry absorbs short blips like a dropped connection or a brief 429, without making the caller wait long. Worst-case latency is about 2 x timeout + backoff.
+- Retrying 4xx errors would waste calls and quota, and falling back on them would mask the caller's mistake.
+- Falling back keeps the service responding during a provider outage, and the header and log status keep it honest.
+
+**Roles of the mock provider**
+
+It serves as the fallback and as the test provider. `MOCK_FORCE_PRIMARY_FAIL=true` makes the primary fail on demand, which is how the fallback is demoed and tested without waiting for a real outage.
+
+**Tradeoff accepted**
+
+The mock returns a fake answer with a 200, so a caller who ignores the header would treat it as real. In production I'd fall back to a second real provider (for example Groq/ollama) or fail fast with a 503 instead.
 ## 7. What I deliberately did NOT build, and why
 
 ## 8. The decision I am least confident about
