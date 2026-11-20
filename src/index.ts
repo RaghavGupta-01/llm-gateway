@@ -9,6 +9,13 @@ export const app = express();
 
 app.use(express.json());
 
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
+    service: "LLM Gateway",
+    status: "online",
+  });
+});
+
 app.get("/health", async (_req: Request, res: Response) => {
   try {
     await pool.query("SELECT 1");
