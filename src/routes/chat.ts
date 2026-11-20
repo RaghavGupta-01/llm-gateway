@@ -2,9 +2,10 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { pool } from "../db.js";
 import { requireVirtualKey } from "../auth.js";
-import { isSupportedModel, actualCost } from "../pricing.js";
+import { isSupportedModel, actualCost, estimateReserve } from "../pricing.js";
 import { mockProvider } from "../providers/mock.js";
 import { geminiProvider } from "../providers/gemini.js";
+import { reserveBudget, settleBudget, releaseBudget } from "../budget.js";
 
 export const chatRouter = Router();
 
@@ -29,6 +30,12 @@ const MAX_TOKENS_CAP = 1024;
  * POST /v1/chat/completions
  */
 chatRouter.post("/chat/completions", async (req: Request, res: Response) => {
+  if (!req.keyId) {
+    res.status(401).json({ error: "unauthorized" });
+    return;
+  }
+  const keyId = req.keyId;
+
   const parseResult = chatCompletionSchema.safeParse(req.body);
   if (!parseResult.success) {
     res.status(400).json({ error: "invalid_request", details: parseResult.error.format() });
@@ -52,11 +59,22 @@ chatRouter.post("/chat/completions", async (req: Request, res: Response) => {
   // Clamp max_tokens to MAX_TOKENS_CAP
   const effectiveMaxTokens = Math.min(max_tokens ?? MAX_TOKENS_CAP, MAX_TOKENS_CAP);
 
+  // Estimate worst-case cost for budget reservation
+  const promptChars = messages.reduce((acc, m) => acc + (m.content?.length || 0), 0);
+  const reserveMicro = estimateReserve(model, promptChars, effectiveMaxTokens);
+
+  // 1. Atomic budget reservation (402 if over budget or revoked)
+  const reserved = await reserveBudget(keyId, reserveMicro);
+  if (!reserved) {
+    res.status(402).json({ error: "budget_exceeded" });
+    return;
+  }
+
   const startTime = Date.now();
+  const provider = model === "mock" ? mockProvider : geminiProvider;
 
   try {
-    // Select provider based on model
-    const provider = model === "mock" ? mockProvider : geminiProvider;
+    // 2. Call provider (Gemini or Mock)
     const result = await provider.chat({
       model,
       messages,
@@ -65,30 +83,33 @@ chatRouter.post("/chat/completions", async (req: Request, res: Response) => {
 
     const latencyMs = Date.now() - startTime;
 
-    // Calculate actual cost in micro-rupees
-    const costMicro = actualCost(model, result.tokensIn, result.tokensOut);
+    // 3. Settle transaction: calculate actual cost, adjust spent_micro, and log usage
+    const actualMicro = actualCost(model, result.tokensIn, result.tokensOut);
+    await settleBudget(keyId, reserveMicro, actualMicro, {
+      provider: result.provider,
+      model: result.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      costMicro: actualMicro,
+      status: "ok",
+      latencyMs,
+    });
 
-    // Insert usage log
-    await pool.query(
-      `INSERT INTO usage_logs (key_id, provider, model, tokens_in, tokens_out, cost_micro, status, latency_ms)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        req.keyId,
-        result.provider,
-        result.model,
-        result.tokensIn,
-        result.tokensOut,
-        costMicro.toString(),
-        "ok",
-        latencyMs,
-      ]
-    );
-
-    // Response header and JSON body
+    // 4. Respond with provider JSON and gateway header
     res.setHeader("x-gateway-provider", result.provider);
     res.status(200).json(result.body);
   } catch (error) {
+    const latencyMs = Date.now() - startTime;
     console.error("Chat completion error:", error);
+
+    // On upstream failure: release reservation, log failed row with cost=0, and return 502
+    await releaseBudget(keyId, reserveMicro, {
+      provider: provider.name,
+      model,
+      status: "failed",
+      latencyMs,
+    });
+
     res.status(502).json({ error: "upstream_unavailable" });
   }
 });

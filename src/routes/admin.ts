@@ -66,3 +66,93 @@ adminRouter.post("/keys", async (req: Request, res: Response) => {
     res.status(500).json({ error: "internal_server_error" });
   }
 });
+
+const keyIdParamSchema = z.object({
+  keyId: z.string().uuid("Invalid key ID format"),
+});
+
+/**
+ * GET /admin/usage/:keyId
+ * View budget, spend, remaining balance, and recent usage logs for a key
+ */
+adminRouter.get("/usage/:keyId", async (req: Request, res: Response) => {
+  const parseResult = keyIdParamSchema.safeParse(req.params);
+  if (!parseResult.success) {
+    res.status(400).json({ error: "invalid_key_id", details: parseResult.error.format() });
+    return;
+  }
+
+  const { keyId } = parseResult.data;
+
+  try {
+    const keyResult = await pool.query<{
+      id: string;
+      name: string;
+      budget_micro: string;
+      spent_micro: string;
+    }>(
+      `SELECT id, name, budget_micro, spent_micro
+       FROM api_keys
+       WHERE id = $1`,
+      [keyId]
+    );
+
+    if (keyResult.rows.length === 0) {
+      res.status(404).json({ error: "key_not_found" });
+      return;
+    }
+
+    const key = keyResult.rows[0];
+    const budgetMicro = BigInt(key.budget_micro);
+    const spentMicro = BigInt(key.spent_micro);
+    const remainingMicro = budgetMicro - spentMicro;
+
+    const countResult = await pool.query<{ count: string }>(
+      `SELECT COUNT(*) as count FROM usage_logs WHERE key_id = $1`,
+      [keyId]
+    );
+    const requestCount = Number(countResult.rows[0]?.count ?? 0);
+
+    const logsResult = await pool.query<{
+      model: string;
+      provider: string;
+      tokens_in: number;
+      tokens_out: number;
+      cost_micro: string;
+      status: string;
+      latency_ms: number | null;
+      created_at: string;
+    }>(
+      `SELECT model, provider, tokens_in, tokens_out, cost_micro, status, latency_ms, created_at
+       FROM usage_logs
+       WHERE key_id = $1
+       ORDER BY created_at DESC
+       LIMIT 20`,
+      [keyId]
+    );
+
+    const recent = logsResult.rows.map((row) => ({
+      model: row.model,
+      provider: row.provider,
+      tokens_in: row.tokens_in,
+      tokens_out: row.tokens_out,
+      cost_micro: Number(row.cost_micro),
+      status: row.status,
+      latency_ms: row.latency_ms,
+      created_at: row.created_at,
+    }));
+
+    res.status(200).json({
+      key_id: key.id,
+      name: key.name,
+      budget_micro: Number(budgetMicro),
+      spent_micro: Number(spentMicro),
+      remaining_micro: Number(remainingMicro),
+      request_count: requestCount,
+      recent,
+    });
+  } catch (error) {
+    console.error("Failed to fetch usage:", error);
+    res.status(500).json({ error: "internal_server_error" });
+  }
+});
