@@ -23,7 +23,36 @@
 
 ## 5. Concurrency
 
-## 6. Fallback policy and why
+**Handled.** If a key has room for two requests and ten arrive at once, exactly two proceed and eight get a 402.
+
+**The risk.** A naive "read the balance, check it in code, then write it" lets several requests read the same old balance and all pass, so the key overshoots:
+
+```
+A: SELECT spent (sees 0) -> OK -> UPDATE spent = 330
+B: SELECT spent (sees 0) -> OK -> UPDATE spent = 330   <- overshoot
+```
+
+**The fix.** The check and the increment are a single SQL statement in `src/budget.ts`:
+
+```sql
+UPDATE api_keys
+   SET spent_tokens = spent_tokens + $2
+ WHERE id = $1
+   AND revoked_at IS NULL
+   AND spent_tokens + $2 <= budget_tokens
+```
+
+- Postgres takes a row lock on the key while updating it. The statement runs in autocommit, so the lock is released as soon as it finishes.
+- A concurrent request waits for that lock, then re-checks the condition against the updated value.
+- If the condition fails, zero rows are updated. The code checks `rowCount === 1`, and on 0 it returns `402` before any provider call.
+
+No application-level locks are needed, because the database serializes requests for the same key.
+
+**Verified by** `tests/concurrency.test.ts`: 10 parallel requests against a key with room for 2 gave 2 successes, 8 rejections, and `spent <= budget`.
+
+**Not covered (knowingly):**
+- The reservation is an estimate. If the real usage exceeds it, a key can overshoot slightly. The `max_tokens` cap bounds this.
+- A crash between reserve and settle leaks a reservation. A reservations table with expiry would fix it.
 
 ## 6. Fallback policy and why
 
